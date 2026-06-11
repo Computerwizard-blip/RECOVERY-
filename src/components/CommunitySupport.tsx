@@ -44,6 +44,50 @@ export default function CommunitySupport({ profile }: CommunitySupportProps) {
       setLikedPosts(JSON.parse(saved));
     }
 
+    if (!profile.userId || profile.userId === "local_guest_user") {
+      const savedLocalPostsStr = localStorage.getItem("local_guest_posts") || "[]";
+      let localGuestPosts: CommunityPost[] = [];
+      try {
+        localGuestPosts = JSON.parse(savedLocalPostsStr);
+      } catch (e) {
+        console.error("Local posts parse error:", e);
+      }
+
+      const sampleFallback: CommunityPost[] = [
+        {
+          postId: "p1",
+          userId: "companion_alpha",
+          userAlias: "Serene Voyager",
+          content: "Today marks 30 days of clean living. The key was rebuilding my daily schedules and avoiding standard triggers in the evening. Stay strong everyone!",
+          category: AddictionCategory.GENERAL,
+          createdAt: new Date(Date.now() - 3600000 * 2).toLocaleString(),
+          likesCount: 12
+        },
+        {
+          postId: "p2",
+          userId: "companion_beta",
+          userAlias: "Unshackled Mind",
+          content: "If you feel a sudden urge, remember the prefrontal cortex mindfulness exercises. Take 10 deep belly breaths and let the craving wave pass.",
+          category: AddictionCategory.ALCOHOL,
+          createdAt: new Date(Date.now() - 3600000 * 8).toLocaleString(),
+          likesCount: 9
+        },
+        {
+          postId: "p3",
+          userId: "companion_gamma",
+          userAlias: "Repaved Pathways",
+          content: "The support group here helped me stay fully accountable. Knowing I can check in without judgment is a profound relief.",
+          category: AddictionCategory.SEX,
+          createdAt: new Date(Date.now() - 3600000 * 24).toLocaleString(),
+          likesCount: 15
+        }
+      ];
+
+      setPosts([...localGuestPosts, ...sampleFallback]);
+      setLoading(false);
+      return;
+    }
+
     // Set up high-fidelity real-time sync with onSnapshot as required in the Firebase skill
     const path = "community_posts";
     const q = query(collection(db, path), orderBy("createdAt", "desc"));
@@ -76,9 +120,65 @@ export default function CommunitySupport({ profile }: CommunitySupportProps) {
     e.preventDefault();
     if (!newPost.trim()) return;
 
-    const path = "community_posts";
     const authorAlias = isAnonymous ? "Anonymous Companion" : profile.alias;
 
+    if (!profile.userId || profile.userId === "local_guest_user") {
+      const newPostObj: CommunityPost = {
+        postId: `local_post_${Math.random().toString(36).substring(2, 11)}`,
+        userId: "local_guest_user",
+        userAlias: authorAlias,
+        content: newPost,
+        category: selectedTag,
+        createdAt: new Date().toLocaleString(),
+        likesCount: 0
+      };
+
+      try {
+        const savedLocalPostsStr = localStorage.getItem("local_guest_posts") || "[]";
+        const localGuestPosts = JSON.parse(savedLocalPostsStr);
+        localGuestPosts.unshift(newPostObj);
+        localStorage.setItem("local_guest_posts", JSON.stringify(localGuestPosts));
+        
+        // Refresh visible state representation
+        const sampleFallback: CommunityPost[] = [
+          {
+            postId: "p1",
+            userId: "companion_alpha",
+            userAlias: "Serene Voyager",
+            content: "Today marks 30 days of clean living. The key was rebuilding my daily schedules and avoiding standard triggers in the evening. Stay strong everyone!",
+            category: AddictionCategory.GENERAL,
+            createdAt: new Date(Date.now() - 3600000 * 2).toLocaleString(),
+            likesCount: 12
+          },
+          {
+            postId: "p2",
+            userId: "companion_beta",
+            userAlias: "Unshackled Mind",
+            content: "If you feel a sudden urge, remember the prefrontal cortex mindfulness exercises. Take 10 deep belly breaths and let the craving wave pass.",
+            category: AddictionCategory.ALCOHOL,
+            createdAt: new Date(Date.now() - 3600000 * 8).toLocaleString(),
+            likesCount: 9
+          },
+          {
+            postId: "p3",
+            userId: "companion_gamma",
+            userAlias: "Repaved Pathways",
+            content: "The support group here helped me stay fully accountable. Knowing I can check in without judgment is a profound relief.",
+            category: AddictionCategory.SEX,
+            createdAt: new Date(Date.now() - 3600000 * 24).toLocaleString(),
+            likesCount: 15
+          }
+        ];
+        setPosts([...localGuestPosts, ...sampleFallback]);
+      } catch (err) {
+        console.error("Failed to save local post", err);
+      }
+
+      setNewPost("");
+      return;
+    }
+
+    const path = "community_posts";
     try {
       const payload = {
         userId: profile.userId,
@@ -106,6 +206,11 @@ export default function CommunitySupport({ profile }: CommunitySupportProps) {
         setLikedPosts(revised);
         localStorage.setItem(`liked_posts_${profile.userId}`, JSON.stringify(revised));
 
+        if (!profile.userId || profile.userId === "local_guest_user") {
+          setPosts(prev => prev.map(p => p.postId === postId ? { ...p, likesCount: Math.max(0, p.likesCount - 1) } : p));
+          return;
+        }
+
         await updateDoc(doc(db, "community_posts", postId), {
           likesCount: Math.max(0, currentLikes - 1)
         });
@@ -121,6 +226,11 @@ export default function CommunitySupport({ profile }: CommunitySupportProps) {
       setLikedPosts(revised);
       localStorage.setItem(`liked_posts_${profile.userId}`, JSON.stringify(revised));
 
+      if (!profile.userId || profile.userId === "local_guest_user") {
+        setPosts(prev => prev.map(p => p.postId === postId ? { ...p, likesCount: p.likesCount + 1 } : p));
+        return;
+      }
+
       // We ONLY update the specific likesCount key to satisfy Firebase secure diff rules safely
       await updateDoc(doc(db, "community_posts", postId), {
         likesCount: currentLikes + 1
@@ -132,6 +242,50 @@ export default function CommunitySupport({ profile }: CommunitySupportProps) {
 
   const handleDeletePost = async (postId: string) => {
     if (!window.confirm("Are you sure you want to remove this post?")) return;
+
+    if (!profile.userId || profile.userId === "local_guest_user") {
+      try {
+        const savedLocalPostsStr = localStorage.getItem("local_guest_posts") || "[]";
+        const localGuestPosts: CommunityPost[] = JSON.parse(savedLocalPostsStr);
+        const filtered = localGuestPosts.filter(p => p.postId !== postId);
+        localStorage.setItem("local_guest_posts", JSON.stringify(filtered));
+
+        const sampleFallback: CommunityPost[] = [
+          {
+            postId: "p1",
+            userId: "companion_alpha",
+            userAlias: "Serene Voyager",
+            content: "Today marks 30 days of clean living. The key was rebuilding my daily schedules and avoiding standard triggers in the evening. Stay strong everyone!",
+            category: AddictionCategory.GENERAL,
+            createdAt: new Date(Date.now() - 3600000 * 2).toLocaleString(),
+            likesCount: 12
+          },
+          {
+            postId: "p2",
+            userId: "companion_beta",
+            userAlias: "Unshackled Mind",
+            content: "If you feel a sudden urge, remember the prefrontal cortex mindfulness exercises. Take 10 deep belly breaths and let the craving wave pass.",
+            category: AddictionCategory.ALCOHOL,
+            createdAt: new Date(Date.now() - 3600000 * 8).toLocaleString(),
+            likesCount: 9
+          },
+          {
+            postId: "p3",
+            userId: "companion_gamma",
+            userAlias: "Repaved Pathways",
+            content: "The support group here helped me stay fully accountable. Knowing I can check in without judgment is a profound relief.",
+            category: AddictionCategory.SEX,
+            createdAt: new Date(Date.now() - 3600000 * 24).toLocaleString(),
+            likesCount: 15
+          }
+        ];
+        setPosts([...filtered, ...sampleFallback]);
+      } catch (err) {
+        console.error("Failed to delete local post", err);
+      }
+      return;
+    }
+
     try {
       await deleteDoc(doc(db, "community_posts", postId));
     } catch (err) {

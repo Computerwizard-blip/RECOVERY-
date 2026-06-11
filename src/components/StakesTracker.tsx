@@ -27,12 +27,13 @@ import {
 interface StakesTrackerProps {
   profile: UserProfile;
   onPaymentSuccess: (newBalance: number) => void;
+  onPlanUpdate?: (newPlan: "monthly" | "yearly") => void;
 }
 
-export default function StakesTracker({ profile, onPaymentSuccess }: StakesTrackerProps) {
+export default function StakesTracker({ profile, onPaymentSuccess, onPlanUpdate }: StakesTrackerProps) {
   const [payments, setPayments] = useState<StakesPayment[]>([]);
   const [loading, setLoading] = useState(true);
-  const [stakeAmount, setStakeAmount] = useState<number>(20); // default preset
+  const [stakeAmount, setStakeAmount] = useState<number>(100); // updated default preset for 1500/15000 scale
   const [customAmount, setCustomAmount] = useState<string>("");
   const [isSimulating, setIsSimulating] = useState(false);
   const [simStep, setSimStep] = useState<"options" | "phone" | "pin" | "success">("options");
@@ -41,7 +42,8 @@ export default function StakesTracker({ profile, onPaymentSuccess }: StakesTrack
   const [paymentMethod, setPaymentMethod] = useState<string>("M-Pesa");
   const [statusMessage, setStatusMessage] = useState("");
 
-  const targetSubscription = 300; // 300sh target
+  const planType = profile.planType || "monthly";
+  const targetSubscription = planType === "yearly" ? 15000 : 1500;
   const currentBalance = profile.subscriptionBalance;
   const progressPercent = Math.min(100, Math.round((currentBalance / targetSubscription) * 100));
 
@@ -51,6 +53,18 @@ export default function StakesTracker({ profile, onPaymentSuccess }: StakesTrack
 
   const fetchPayments = async () => {
     setLoading(true);
+    if (!profile.userId || profile.userId === "local_guest_user") {
+      try {
+        const localPaymentsStr = localStorage.getItem("local_guest_payments") || "[]";
+        setPayments(JSON.parse(localPaymentsStr));
+      } catch (err) {
+        console.error("Failed to parse local guest payments", err);
+        setPayments([]);
+      }
+      setLoading(false);
+      return;
+    }
+
     const path = "stakes_payments";
     try {
       const q = query(
@@ -110,6 +124,33 @@ export default function StakesTracker({ profile, onPaymentSuccess }: StakesTrack
 
     setStatusMessage("Authenticating transaction securely...");
     const amountToPay = customAmount ? parseFloat(customAmount) : stakeAmount;
+
+    if (!profile.userId || profile.userId === "local_guest_user") {
+      const newAccumulatedBalance = currentBalance + amountToPay;
+      onPaymentSuccess(newAccumulatedBalance);
+
+      const docId = `local_pay_${Math.random().toString(36).substring(2, 11)}`;
+      const newLocalPayment: StakesPayment = {
+        paymentId: docId,
+        userId: "local_guest_user",
+        amount: amountToPay,
+        createdAt: new Date().toLocaleString(),
+        method: paymentMethod
+      };
+
+      try {
+        const localPaymentsStr = localStorage.getItem("local_guest_payments") || "[]";
+        const localPayments = JSON.parse(localPaymentsStr);
+        localPayments.unshift(newLocalPayment);
+        localStorage.setItem("local_guest_payments", JSON.stringify(localPayments));
+        setPayments(localPayments);
+      } catch (err) {
+        console.error("Failed to save local payments", err);
+      }
+
+      setSimStep("success");
+      return;
+    }
 
     try {
       // 1. Record the Micro Stakes Payment in Firestore
@@ -175,21 +216,46 @@ export default function StakesTracker({ profile, onPaymentSuccess }: StakesTrack
       {/* progress bento */}
       <div id="progress_card" className="lg:col-span-2 bg-white/5 backdrop-blur-xl border border-white/10 p-6 shadow-2xl rounded-2xl flex flex-col justify-between animate-fade-in">
         <div>
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
             <div className="flex items-center gap-2">
               <span className="p-2 bg-amber-500/10 rounded-lg text-amber-400 border border-amber-500/20">
                 <Coins className="w-5 h-5 animate-pulse" />
               </span>
               <h3 className="font-semibold text-white text-lg">Subscription Progress</h3>
             </div>
-            <span className="text-sm font-mono text-slate-400">Goal: 300 sh/month</span>
+            
+            {/* Interactive Plan Selector Switch */}
+            <div className="flex items-center gap-1.5 bg-white/5 p-1 rounded-xl text-xs font-bold border border-white/10">
+              <button
+                type="button"
+                onClick={() => onPlanUpdate?.("monthly")}
+                className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                  planType === "monthly" 
+                    ? "bg-emerald-500 text-slate-950 font-extrabold shadow-sm" 
+                    : "text-slate-450 hover:text-white"
+                }`}
+              >
+                Monthly Key (1,500 sh)
+              </button>
+              <button
+                type="button"
+                onClick={() => onPlanUpdate?.("yearly")}
+                className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                  planType === "yearly" 
+                    ? "bg-emerald-500 text-slate-950 font-extrabold shadow-sm" 
+                    : "text-slate-450 hover:text-white"
+                }`}
+              >
+                Pay Yearly Once (15,000 sh)
+              </button>
+            </div>
           </div>
 
           <div className="my-6">
             <div className="flex justify-between items-end mb-2">
               <div>
                 <span className="text-4xl font-extrabold text-white tracking-tight">{currentBalance}sh</span>
-                <span className="text-sm text-slate-350 font-medium"> reached</span>
+                <span className="text-sm text-slate-350 font-medium"> of {targetSubscription}sh reached</span>
               </div>
               <span className="text-sm font-bold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
                 {progressPercent}% Complete
@@ -206,8 +272,8 @@ export default function StakesTracker({ profile, onPaymentSuccess }: StakesTrack
 
             <div className="flex justify-between text-[11px] text-slate-400 mt-2.5 font-mono leading-relaxed">
               <span>0 sh</span>
-              <span>150 sh (Tier 1 Support)</span>
-              <span>300 sh (Unlocked All Resources & Therapy Guidance)</span>
+              <span>{planType === "yearly" ? "7,500 sh (Standard)" : "750 sh (Standard)"}</span>
+              <span>{planType === "yearly" ? "15,000 sh (Premium Yearly Once)" : "1,500 sh (Premium Monthly)"}</span>
             </div>
           </div>
         </div>
@@ -215,7 +281,7 @@ export default function StakesTracker({ profile, onPaymentSuccess }: StakesTrack
         <div className="mt-4 pt-4 border-t border-white/10 bg-white/5 rounded-xl p-3.5 flex items-start gap-2.5">
           <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
           <p className="text-xs text-slate-300 leading-relaxed font-normal">
-            <strong>Small Stakes Guarantee:</strong> We understand that finding 300sh at once can be tough. By offering micro-payments (starting at just 10sh), anyone can pace contributions over the slot of a month in a stress-free framework. Your benefits unlock dynamically.
+            <strong>Small Stakes Guarantee:</strong> We understand that paying the full amount at once can be tough. By offering micro-payments, you can pace contributions incrementally on a stress-free sovereign framework. Selecting the <strong>Yearly Once Plan</strong> lets you protect your account with a single, annual contribution that has zero recurring stress.
           </p>
         </div>
       </div>
@@ -236,7 +302,7 @@ export default function StakesTracker({ profile, onPaymentSuccess }: StakesTrack
             </p>
 
             <div className="grid grid-cols-4 gap-2 mb-4">
-              {[10, 20, 50, 100].map((amt) => (
+              {(planType === "yearly" ? [500, 1000, 5000, 15000] : [100, 250, 500, 1500]).map((amt) => (
                 <button
                   key={amt}
                   type="button"
@@ -244,13 +310,13 @@ export default function StakesTracker({ profile, onPaymentSuccess }: StakesTrack
                     setStakeAmount(amt);
                     setCustomAmount("");
                   }}
-                  className={`py-2 text-sm font-bold rounded-lg border transition-all cursor-pointer ${
+                  className={`py-2 text-xs font-bold rounded-lg border transition-all cursor-pointer ${
                     stakeAmount === amt && !customAmount
-                      ? "bg-emerald-500 border-emerald-500 text-slate-950 shadow-sm"
+                      ? "bg-emerald-500 border-emerald-500 text-slate-950 shadow-sm font-extrabold"
                       : "bg-white/5 border-white/10 text-slate-350 hover:bg-white/10 hover:text-white"
                   }`}
                 >
-                  {amt}sh
+                  {amt >= 1000 ? `${(amt/1000).toFixed(0)}k` : amt}sh
                 </button>
               ))}
             </div>

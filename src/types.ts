@@ -11,8 +11,11 @@ export interface UserProfile {
   addictionFocus: AddictionCategory;
   streakDays: number;
   lastCheckIn?: string;
-  subscriptionBalance: number; // current contribution towards 300sh target
+  subscriptionBalance: number; // current contribution towards targeted subscription fee
   joinedAt: string;
+  fullName?: string;
+  username?: string;
+  planType?: "monthly" | "yearly";
 }
 
 export interface StakesPayment {

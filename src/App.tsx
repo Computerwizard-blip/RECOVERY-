@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { 
   onAuthStateChanged, 
-  signInWithPopup, 
   signOut, 
+  signInAnonymously,
   User 
 } from "@firebase/auth";
 import { 
@@ -15,7 +15,6 @@ import {
 import { 
   auth, 
   db, 
-  googleProvider, 
   handleFirestoreError, 
   OperationType 
 } from "./firebase";
@@ -28,6 +27,7 @@ import CBTGuideChat from "./components/CBTGuideChat";
 import CommunitySupport from "./components/CommunitySupport";
 import EducationalLibrary from "./components/EducationalLibrary";
 import DailyQuote from "./components/DailyQuote";
+import AddictionImpactGuide from "./components/AddictionImpactGuide";
 
 import { 
   Activity, 
@@ -57,18 +57,68 @@ export default function App() {
   const [selectedFocus, setSelectedFocus] = useState<AddictionCategory>(AddictionCategory.GENERAL);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [checkedInToday, setCheckedInToday] = useState(false);
-  const [authError, setAuthError] = useState<string | null>(null);
+
+  // Credentials Signup/Login States
+  const [isSignUp, setIsSignUp] = useState(true);
+  const [signUpName, setSignUpName] = useState("");
+  const [signUpUsername, setSignUpUsername] = useState("");
+  const [signUpPassword, setSignUpPassword] = useState("");
+  const [signUpFocus, setSignUpFocus] = useState<AddictionCategory>(AddictionCategory.GENERAL);
+  const [credentialsError, setCredentialsError] = useState<string | null>(null);
+  const [credentialsSuccess, setCredentialsSuccess] = useState<string | null>(null);
 
   useEffect(() => {
-    // Monitor user authentication transitions
+    // Restore profile from localStorage immediately if it exists, to support instant offline-first bypass
+    const cachedProfile = localStorage.getItem("sovereign_profile");
+    if (cachedProfile) {
+      try {
+        const parsed = JSON.parse(cachedProfile);
+        setProfile(parsed);
+        setAliasInput(parsed.alias);
+        setSelectedFocus(parsed.addictionFocus);
+        setUser({
+          uid: parsed.userId || "local_guest_user",
+          email: "companion@sovereign.local"
+        } as any);
+
+        if (parsed.lastCheckIn) {
+          const lastDate = new Date(parsed.lastCheckIn).toDateString();
+          const todayDate = new Date().toDateString();
+          setCheckedInToday(lastDate === todayDate);
+        }
+        setLoading(false);
+      } catch (e) {
+        console.error("Local profile parse failed:", e);
+      }
+    }
+
+    // Monitor user authentication transitions as a background stream
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      setLoading(true);
       if (firebaseUser) {
         setUser(firebaseUser);
         await syncUserProfile(firebaseUser);
       } else {
-        setUser(null);
-        setProfile(null);
+        const userId = "local_guest_user";
+        setUser({
+          uid: userId,
+          email: "companion@sovereign.local"
+        } as any);
+
+        setProfile(prev => {
+          if (prev) return prev;
+          const defaultProfile: UserProfile = {
+            userId: userId,
+            alias: "Sovereign Companion",
+            addictionFocus: AddictionCategory.GENERAL,
+            streakDays: 0,
+            lastCheckIn: "",
+            subscriptionBalance: 0,
+            joinedAt: new Date().toISOString()
+          };
+          setAliasInput(defaultProfile.alias);
+          setSelectedFocus(defaultProfile.addictionFocus);
+          return defaultProfile;
+        });
       }
       setLoading(false);
     });
@@ -76,8 +126,14 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  // Autosave profile state to localStorage in real time
+  useEffect(() => {
+    if (profile) {
+      localStorage.setItem("sovereign_profile", JSON.stringify(profile));
+    }
+  }, [profile]);
+
   const syncUserProfile = async (firebaseUser: User) => {
-    const profilePath = `user_profiles/${firebaseUser.uid}`;
     try {
       const docRef = doc(db, "user_profiles", firebaseUser.uid);
       const snapshot = await getDoc(docRef);
@@ -115,15 +171,18 @@ export default function App() {
           joinedAt: new Date().toISOString()
         };
 
-        await setDoc(docRef, defaultProfile)
-          .catch(err => handleFirestoreError(err, OperationType.CREATE, profilePath));
+        try {
+          await setDoc(docRef, defaultProfile);
+        } catch (err) {
+          console.warn("Could not write initial profile to firestore, using local copy:", err);
+        }
         
         setProfile(defaultProfile);
         setAliasInput(defaultProfile.alias);
         setSelectedFocus(defaultProfile.addictionFocus);
       }
     } catch (err) {
-      console.error("Critical Profile Synchronization Error:", err);
+      console.warn("Critical Profile Synchronization Error (resilient bypass):", err);
     }
   };
 
@@ -131,67 +190,181 @@ export default function App() {
     e.preventDefault();
     if (!user || !profile || !aliasInput.trim()) return;
 
-    const profilePath = `user_profiles/${user.uid}`;
     try {
       const docRef = doc(db, "user_profiles", user.uid);
       await updateDoc(docRef, {
         alias: aliasInput,
         addictionFocus: selectedFocus
-      }).catch(err => handleFirestoreError(err, OperationType.UPDATE, profilePath));
-
-      setProfile(prev => prev ? { ...prev, alias: aliasInput, addictionFocus: selectedFocus } : null);
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 3000);
+      });
     } catch (err) {
-      console.error("Failed to commit profile updates:", err);
+      console.warn("Profile update cloud sync skipped/failed:", err);
     }
+
+    setProfile(prev => prev ? { ...prev, alias: aliasInput, addictionFocus: selectedFocus } : null);
+    setSaveSuccess(true);
+    setTimeout(() => setSaveSuccess(false), 3000);
   };
 
   const handleDailyCheckIn = async () => {
     if (!user || !profile || checkedInToday) return;
 
-    const profilePath = `user_profiles/${user.uid}`;
+    const nextStreak = profile.streakDays + 1;
+    const todayISO = new Date().toISOString();
+
     try {
       const docRef = doc(db, "user_profiles", user.uid);
-      const nextStreak = profile.streakDays + 1;
-      const todayISO = new Date().toISOString();
-
       await updateDoc(docRef, {
         streakDays: nextStreak,
         lastCheckIn: todayISO
-      }).catch(err => handleFirestoreError(err, OperationType.UPDATE, profilePath));
-
-      setProfile(prev => prev ? { ...prev, streakDays: nextStreak, lastCheckIn: todayISO } : null);
-      setCheckedInToday(true);
+      });
     } catch (err) {
-      console.error("Check-in update failed:", err);
+      console.warn("Check-in cloud sync skipped/failed:", err);
     }
+
+    setProfile(prev => prev ? { ...prev, streakDays: nextStreak, lastCheckIn: todayISO } : null);
+    setCheckedInToday(true);
   };
 
-  const handleAuthLogin = async () => {
-    setAuthError(null);
+  const handleCredentialsAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCredentialsError(null);
+    setCredentialsSuccess(null);
+
+    // Validate Password length (minimum 5 letters/chars)
+    if (signUpPassword.length < 5) {
+      setCredentialsError("Password creation error: Password must be at least 5 letters or characters long.");
+      return;
+    }
+
+    if (!signUpUsername.trim()) {
+      setCredentialsError("Please provide a valid username.");
+      return;
+    }
+
+    if (isSignUp && !signUpName.trim()) {
+      setCredentialsError("Please provide your full name.");
+      return;
+    }
+
+    setLoading(true);
     try {
-      await signInWithPopup(auth, googleProvider);
-    } catch (err: any) {
-      console.error("External Authentication Popup Failed:", err);
-      if (err.code === "auth/popup-closed-by-user" || err.message?.includes("popup-closed-by-user")) {
-        setAuthError("The sign-in popup was closed before completing authentication. Please click sign-in and keep the window open to finish logging in.");
+      if (isSignUp) {
+        // Sign-up process:
+        const localRegistryStr = localStorage.getItem("sovereign_local_registry") || "{}";
+        const localRegistry = JSON.parse(localRegistryStr);
+        
+        if (localRegistry[signUpUsername]) {
+          setCredentialsError("This username is already registered. Please choose another one or log in.");
+          setLoading(false);
+          return;
+        }
+
+        // Perform authentic Anonymous sign in so that Firestore is authorized
+        const authCred = await signInAnonymously(auth);
+        const firebaseUser = authCred.user;
+
+        const newProfile: UserProfile = {
+          userId: firebaseUser.uid,
+          alias: signUpUsername,
+          addictionFocus: signUpFocus,
+          streakDays: 0,
+          lastCheckIn: "",
+          subscriptionBalance: 0,
+          joinedAt: new Date().toISOString(),
+          fullName: signUpName,
+          username: signUpUsername
+        };
+
+        const profilePath = `user_profiles/${firebaseUser.uid}`;
+        const docRef = doc(db, "user_profiles", firebaseUser.uid);
+        await setDoc(docRef, newProfile)
+          .catch(err => handleFirestoreError(err, OperationType.CREATE, profilePath));
+
+        localRegistry[signUpUsername] = {
+          fullName: signUpName,
+          username: signUpUsername,
+          password: signUpPassword,
+          userId: firebaseUser.uid,
+          profile: newProfile
+        };
+        localStorage.setItem("sovereign_local_registry", JSON.stringify(localRegistry));
+
+        setUser(firebaseUser);
+        setProfile(newProfile);
+        setAliasInput(signUpUsername);
+        setSelectedFocus(signUpFocus);
+        setCredentialsSuccess("Profile created! Welcome to Sovereign Path.");
       } else {
-        setAuthError("Failed to sign in. Please verify your connection and try again.");
-      }
-    }
-  };
+        // Log-in process:
+        const localRegistryStr = localStorage.getItem("sovereign_local_registry") || "{}";
+        const localRegistry = JSON.parse(localRegistryStr);
 
-  const handleAuthLogout = async () => {
-    try {
-      await signOut(auth);
-    } catch (err) {
-      console.error("Auth SignOut Session Failed:", err);
+        const savedAccount = localRegistry[signUpUsername];
+        if (!savedAccount || savedAccount.password !== signUpPassword) {
+          setCredentialsError("Incorrect username or password. Please verify your credentials.");
+          setLoading(false);
+          return;
+        }
+
+        let currentFirebaseUser = auth.currentUser;
+        if (!currentFirebaseUser) {
+          const authCred = await signInAnonymously(auth);
+          currentFirebaseUser = authCred.user;
+        }
+
+        const docRef = doc(db, "user_profiles", savedAccount.userId);
+        let activeProfile: UserProfile = savedAccount.profile;
+        try {
+          const snapshot = await getDoc(docRef);
+          if (snapshot.exists()) {
+            const data = snapshot.data();
+            activeProfile = {
+              userId: data.userId,
+              alias: data.alias || savedAccount.username,
+              addictionFocus: (data.addictionFocus as AddictionCategory) || savedAccount.profile.addictionFocus,
+              streakDays: data.streakDays || 0,
+              lastCheckIn: data.lastCheckIn || "",
+              subscriptionBalance: data.subscriptionBalance || 0,
+              joinedAt: data.joinedAt || savedAccount.profile.joinedAt,
+              fullName: data.fullName || savedAccount.fullName,
+              username: data.username || savedAccount.username
+            };
+          }
+        } catch (fetchErr) {
+          console.warn("Could not reach cloud ledger, using offline profile:", fetchErr);
+        }
+
+        setUser(currentFirebaseUser);
+        setProfile(activeProfile);
+        setAliasInput(activeProfile.alias);
+        setSelectedFocus(activeProfile.addictionFocus);
+        setCredentialsSuccess("Log-in verified!");
+      }
+    } catch (err: any) {
+      console.error("Credentials Authentication Failed:", err);
+      setCredentialsError("Authentication failed: " + (err.message || String(err)));
+    } finally {
+      setLoading(false);
     }
   };
 
   const handlePaymentCompleted = (newBalance: number) => {
     setProfile(prev => prev ? { ...prev, subscriptionBalance: newBalance } : null);
+  };
+
+  const handleUpdatePlanType = async (newPlan: "monthly" | "yearly") => {
+    if (!user || !profile) return;
+    const profilePath = `user_profiles/${user.uid}`;
+    try {
+      const docRef = doc(db, "user_profiles", user.uid);
+      await updateDoc(docRef, {
+        planType: newPlan
+      }).catch(err => handleFirestoreError(err, OperationType.UPDATE, profilePath));
+
+      setProfile(prev => prev ? { ...prev, planType: newPlan } : null);
+    } catch (err) {
+      console.error("Plan type update failed:", err);
+    }
   };
 
   return (
@@ -223,27 +396,15 @@ export default function App() {
               </div>
             )}
 
-            {user ? (
-              <div className="flex items-center gap-2">
-                <div className="text-right hidden sm:block">
-                  <p className="text-xs font-bold text-gray-900">{profile?.alias || "Sovereign Companion"}</p>
-                  <p className="text-[10px] text-gray-400 font-mono italic">{user.email}</p>
+            {profile && (
+              <div className="flex items-center gap-3">
+                <div className="text-right">
+                  <p className="text-xs font-bold text-gray-905">{profile.alias || "Sovereign Companion"}</p>
+                  {profile.username && (
+                    <p className="text-[10px] text-gray-400 font-mono italic">@{profile.username}</p>
+                  )}
                 </div>
-                <button
-                  onClick={handleAuthLogout}
-                  className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all cursor-pointer border border-gray-100"
-                  title="Logout Session"
-                >
-                  <LogOut className="w-4 h-4" />
-                </button>
               </div>
-            ) : (
-              <button
-                onClick={handleAuthLogin}
-                className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-4 py-2 rounded-xl transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
-              >
-                <UserIcon className="w-4 h-4" /> Sign In securely
-              </button>
             )}
           </div>
 
@@ -253,59 +414,7 @@ export default function App() {
       {/* primary body segment */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 space-y-6">
         
-        {!user ? (
-          /* unauthorized Landing Panel */
-          <div className="max-w-2xl mx-auto py-12 text-center space-y-8 bg-white border border-gray-100 p-8 rounded-3xl shadow-sm mt-12">
-            <div className="space-y-4">
-              <span className="bg-indigo-50 border border-indigo-100 text-indigo-700 text-xs font-bold px-3 py-1.5 rounded-full uppercase tracking-wider inline-flex mx-auto items-center gap-1 animate-pulse">
-                <Sparkles className="w-3.5 h-3.5" /> Compassionate Path Forward
-              </span>
-              <h2 className="text-3xl md:text-4xl font-black text-gray-950 tracking-tight leading-tight">
-                Reclaim Sovereignty From Addiction
-              </h2>
-              <p className="text-sm md:text-base text-gray-500 leading-relaxed max-w-lg mx-auto">
-                Clean, encouraging educational platform tailored for people seeking recovery from drugs, sex compulsions, or alcohol addiction. 
-              </p>
-            </div>
-
-            {/* features grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 py-4 text-left max-w-lg mx-auto">
-              <div className="p-4 bg-slate-50/70 rounded-2xl border border-slate-100">
-                <BookOpen className="w-5 h-5 text-indigo-600 mb-2" />
-                <h4 className="font-bold text-gray-900 text-xs uppercase mb-1">CBT Resources</h4>
-                <p className="text-[11px] text-gray-500 leading-relaxed">Scientific rewiring biology and chemical cues education.</p>
-              </div>
-              <div className="p-4 bg-slate-50/70 rounded-2xl border border-slate-100">
-                <MessageSquare className="w-5 h-5 text-emerald-600 mb-2" />
-                <h4 className="font-bold text-gray-900 text-xs uppercase mb-1">Community Support</h4>
-                <p className="text-[11px] text-gray-500 leading-relaxed">Global supportive forums using protected, private aliases.</p>
-              </div>
-              <div className="p-4 bg-slate-50/70 rounded-2xl border border-slate-100">
-                <Coins className="w-5 h-5 text-amber-600 mb-2" />
-                <h4 className="font-bold text-gray-900 text-xs uppercase mb-1">Small Stakes</h4>
-                <p className="text-[11px] text-gray-500 leading-relaxed">Budget-friendly 300sh progress locks split over simple weeks.</p>
-              </div>
-            </div>
-
-            <div className="pt-4 border-t border-gray-50 space-y-3">
-              {authError && (
-                <div className="p-3.5 bg-amber-50 border border-amber-200 text-amber-900 text-xs rounded-xl flex items-center justify-between max-w-lg mx-auto text-left">
-                  <span className="font-medium">{authError}</span>
-                  <button onClick={() => setAuthError(null)} className="ml-2 font-bold text-amber-700 hover:text-amber-950 shrink-0 cursor-pointer">Dismiss</button>
-                </div>
-              )}
-              <button
-                onClick={handleAuthLogin}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold px-8 py-3 rounded-2xl shadow-md transition-all cursor-pointer text-sm w-full sm:w-auto"
-              >
-                Get Started Anonymously
-              </button>
-              <p className="text-[10px] text-gray-400 font-medium">
-                Uses Google Single Sign-In to secure your ledger, whilst maintaining total anonymous forums integrity.
-              </p>
-            </div>
-          </div>
-        ) : loading ? (
+        {loading ? (
           <div className="py-24 text-center text-sm text-gray-400">Syncing secure connection parameters...</div>
         ) : (
           /* Authorized user interface board and workspaces */
@@ -369,7 +478,8 @@ export default function App() {
             <div id="active-panel" className="transition-all duration-300">
               
               {activeTab === "dashboard" && profile && (
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="space-y-6 font-sans">
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                   
                   {/* core dashboard summary container */}
                   <div className="lg:col-span-2 space-y-6">
@@ -403,6 +513,137 @@ export default function App() {
 
                     {/* Daily Inspirational Quote Section */}
                     <DailyQuote />
+
+                    {/* Optional Registration Card to persist account */}
+                    {!profile.username && (
+                      <div className="bg-gradient-to-br from-indigo-55 to-slate-50 border border-indigo-100 rounded-3xl p-6 shadow-sm space-y-4">
+                        <div className="flex items-center justify-between border-b border-indigo-100/50 pb-3">
+                          <div>
+                            <span className="text-[9px] text-indigo-700 font-bold uppercase tracking-wider bg-indigo-100 border border-indigo-150 px-2 py-0.5 rounded-md">
+                              SECURE DATABASE PERSISTENCE
+                            </span>
+                            <h3 className="font-extrabold text-blue-950 text-base md:text-lg tracking-tight leading-none mt-1.5">
+                              {isSignUp ? "Claim Session & Create Account" : "Access Registered Account"}
+                            </h3>
+                          </div>
+                          
+                          <div className="flex bg-gray-105 p-1 rounded-xl text-[10px] font-bold">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsSignUp(true);
+                                setCredentialsError(null);
+                                setCredentialsSuccess(null);
+                              }}
+                              className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${isSignUp ? "bg-white text-slate-950 shadow-xs font-extrabold" : "text-gray-500 hover:text-slate-900"}`}
+                            >
+                              Register
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsSignUp(false);
+                                setCredentialsError(null);
+                                setCredentialsSuccess(null);
+                              }}
+                              className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${!isSignUp ? "bg-white text-slate-950 shadow-xs font-extrabold" : "text-gray-500 hover:text-slate-900"}`}
+                            >
+                              Log In
+                            </button>
+                          </div>
+                        </div>
+
+                        <p className="text-xs text-gray-500 leading-normal">
+                          {isSignUp 
+                            ? "Secure your daily milestones, small stakes contributions, and customization preferences with a permanent username." 
+                            : "Log in with your existing credentials to restore your personalized settings."}
+                        </p>
+
+                        <form onSubmit={handleCredentialsAuth} className="space-y-4">
+                          {isSignUp ? (
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                              <div>
+                                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Full Name</label>
+                                <input
+                                  type="text"
+                                  value={signUpName}
+                                  onChange={(e) => setSignUpName(e.target.value)}
+                                  className="w-full text-xs rounded-xl border border-gray-200 px-3 py-2 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-150 focus:border-indigo-400 font-medium"
+                                  placeholder="e.g. John Doe"
+                                  required
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Username</label>
+                                <input
+                                  type="text"
+                                  value={signUpUsername}
+                                  onChange={(e) => setSignUpUsername(e.target.value.toLowerCase().trim().replace(/[^a-z0-9_]/g, ""))}
+                                  className="w-full text-xs rounded-xl border border-gray-200 px-3 py-2 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-150 focus:border-indigo-400 font-medium"
+                                  placeholder="e.g. jdoe24"
+                                  required
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Password (Min 5 Letters)</label>
+                                <input
+                                  type="password"
+                                  value={signUpPassword}
+                                  onChange={(e) => setSignUpPassword(e.target.value)}
+                                  className="w-full text-xs rounded-xl border border-gray-200 px-3 py-2 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-150 focus:border-indigo-400 font-medium"
+                                  placeholder="••••••••"
+                                  required
+                                />
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <div>
+                                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Username</label>
+                                <input
+                                  type="text"
+                                  value={signUpUsername}
+                                  onChange={(e) => setSignUpUsername(e.target.value.toLowerCase().trim().replace(/[^a-z0-9_]/g, ""))}
+                                  className="w-full text-xs rounded-xl border border-gray-200 px-3 py-2 bg-white text-slate-905 focus:outline-none focus:ring-2 focus:ring-indigo-150 focus:border-indigo-400 font-medium"
+                                  placeholder="Your username"
+                                  required
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Password</label>
+                                <input
+                                  type="password"
+                                  value={signUpPassword}
+                                  onChange={(e) => setSignUpPassword(e.target.value)}
+                                  className="w-full text-xs rounded-xl border border-gray-200 px-3 py-2 bg-white text-slate-905 focus:outline-none focus:ring-2 focus:ring-indigo-150 focus:border-indigo-400 font-medium"
+                                  placeholder="••••••••"
+                                  required
+                                />
+                              </div>
+                            </div>
+                          )}
+
+                          {credentialsError && (
+                            <div className="p-3 bg-rose-50 border border-rose-150 text-rose-800 text-[11px] rounded-xl font-medium">
+                              {credentialsError}
+                            </div>
+                          )}
+
+                          {credentialsSuccess && (
+                            <div className="p-3 bg-emerald-50 border border-emerald-150 text-emerald-800 text-[11px] rounded-xl font-medium">
+                              {credentialsSuccess}
+                            </div>
+                          )}
+
+                          <button
+                            type="submit"
+                            className="bg-slate-900 hover:bg-slate-800 text-white font-extrabold text-xs px-5 py-2.5 rounded-xl transition-all cursor-pointer shadow-xs uppercase tracking-wide"
+                          >
+                            {isSignUp ? "Register Sovereign Profile" : "Sign In & Load Profile"}
+                          </button>
+                        </form>
+                      </div>
+                    )}
 
                     {/* recovery customizable onboarding settings checklist */}
                     <div className="bg-white border border-gray-100 rounded-3xl p-6 shadow-sm">
@@ -456,58 +697,63 @@ export default function App() {
                       </form>
                     </div>
 
-                  </div>
-
-                  {/* sidebar stakes bento progress dashboard summary */}
-                  <div className="bg-white rounded-3xl border border-gray-100 p-6 shadow-sm flex flex-col justify-between">
-                    <div>
-                      <h4 className="font-bold text-gray-900 text-sm mb-1 uppercase tracking-wider flex items-center gap-1">
-                        <Coins className="w-4.5 h-4.5 text-amber-500 animate-spin-slow" /> Monthly stakes Progress
-                      </h4>
-                      <p className="text-[11px] text-gray-500 leading-relaxed mb-4">
-                        Monthly support fee of 300sh split into convenient, budget-friendly stakes contributions.
-                      </p>
-
-                      <div className="p-4 bg-indigo-50/50 rounded-2xl mb-4 text-center">
-                        <div className="text-3xl font-extrabold text-blue-950">{profile.subscriptionBalance}sh</div>
-                        <div className="text-[11px] font-bold text-indigo-700 uppercase tracking-widest mt-1">Stakes Deposited</div>
+                    {/* sidebar stakes bento progress dashboard summary */}
+                    <div className="bg-white rounded-3xl border border-gray-100 p-6 shadow-sm flex flex-col justify-between">
+                      <div>
+                        <h4 className="font-bold text-gray-900 text-sm mb-1 uppercase tracking-wider flex items-center gap-1">
+                          <Coins className="w-4.5 h-4.5 text-amber-500 animate-spin-slow" /> {profile.planType === "yearly" ? "Yearly Stakes Protection" : "Monthly Stakes Progress"}
+                        </h4>
+                        <p className="text-[11px] text-gray-500 leading-relaxed mb-4">
+                          {profile.planType === "yearly" 
+                            ? "Single yearly fee of 15,000sh that removes recurring subscription stress entirely." 
+                            : "Monthly support fee of 1,500sh split into convenient, budget-friendly stakes contributions."}
+                        </p>
+   
+                        <div className="p-4 bg-indigo-50/50 rounded-2xl mb-4 text-center">
+                          <div className="text-3xl font-extrabold text-blue-950">{profile.subscriptionBalance}sh</div>
+                          <div className="text-[11px] font-bold text-indigo-700 uppercase tracking-widest mt-1">Stakes Deposited</div>
+                        </div>
+   
+                        <div className="space-y-2 mt-4 text-xs text-gray-600">
+                          <div className="flex justify-between font-medium">
+                            <span>Starter (0sh)</span>
+                            <span className={profile.subscriptionBalance >= 0 ? "font-bold text-emerald-600" : "text-gray-400"}>Active</span>
+                          </div>
+                          <div className="flex justify-between font-medium">
+                            <span>Standard Support ({profile.planType === "yearly" ? "7,500" : "750"}sh)</span>
+                            <span className={profile.subscriptionBalance >= (profile.planType === "yearly" ? 7500 : 750) ? "font-bold text-emerald-600" : "text-gray-400"}>
+                              {profile.subscriptionBalance >= (profile.planType === "yearly" ? 7500 : 750) ? "Unlocked" : "Locked"}
+                            </span>
+                          </div>
+                          <div className="flex justify-between font-medium">
+                            <span>Premium Support ({profile.planType === "yearly" ? "15,000" : "1,500"}sh)</span>
+                            <span className={profile.subscriptionBalance >= (profile.planType === "yearly" ? 15000 : 1500) ? "font-bold text-emerald-600" : "text-gray-400"}>
+                              {profile.subscriptionBalance >= (profile.planType === "yearly" ? 15000 : 1500) ? "Unlocked" : "Locked"}
+                            </span>
+                          </div>
+                        </div>
                       </div>
 
-                      <div className="space-y-2 mt-4 text-xs text-gray-600">
-                        <div className="flex justify-between font-medium">
-                          <span>Starter (0sh)</span>
-                          <span className={profile.subscriptionBalance >= 0 ? "font-bold text-emerald-600" : "text-gray-400"}>Active</span>
-                        </div>
-                        <div className="flex justify-between font-medium">
-                          <span>Standard Support (150sh)</span>
-                          <span className={profile.subscriptionBalance >= 150 ? "font-bold text-emerald-600" : "text-gray-400"}>
-                            {profile.subscriptionBalance >= 150 ? "Unlocked" : "Locked"}
-                          </span>
-                        </div>
-                        <div className="flex justify-between font-medium">
-                          <span>Premium Support (300sh)</span>
-                          <span className={profile.subscriptionBalance >= 300 ? "font-bold text-emerald-600" : "text-gray-400"}>
-                            {profile.subscriptionBalance >= 300 ? "Unlocked" : "Locked"}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={() => setActiveTab("stakes")}
-                      className="mt-6 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-extrabold text-xs py-2.5 rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all cursor-pointer text-center"
-                    >
-                      Stake Small Stakes
-                    </button>
-                  </div>
+                      <button
+                        onClick={() => setActiveTab("stakes")}
+                        className="mt-6 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-extrabold text-xs py-2.5 rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all cursor-pointer text-center"
+                      >
+                        Stake Small Stakes
+                      </button>
+                    </div>            </div>
 
                 </div>
-              )}
+
+                {/* Full Width Addiction Impact and Recovery Guide */}
+                <AddictionImpactGuide />
+              </div>
+            )}
 
               {activeTab === "stakes" && profile && (
                 <StakesTracker 
                   profile={profile} 
                   onPaymentSuccess={handlePaymentCompleted} 
+                  onPlanUpdate={handleUpdatePlanType}
                 />
               )}
 

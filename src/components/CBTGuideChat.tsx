@@ -44,12 +44,16 @@ I can also guide you through specialized exercises. Try a quick-preset below!`,
 
   // Determine tiers based on subscription stakes
   const currentStakes = profile.subscriptionBalance;
-  const isLocked = currentStakes < 150 && sessionCount >= 3;
-  const currentTier = currentStakes >= 300 
-    ? "Premium Therapist Support" 
-    : currentStakes >= 150 
+  const isYearly = profile.planType === "yearly";
+  const targetValue = isYearly ? 15000 : 1500;
+  const standardValue = isYearly ? 7500 : 750;
+
+  const isLocked = currentStakes < standardValue && sessionCount >= 3;
+  const currentTier = currentStakes >= targetValue 
+    ? (isYearly ? "Premium Yearly Support (Fully Unlocked)" : "Premium Therapist Support") 
+    : currentStakes >= standardValue 
     ? "Standard Support Tier" 
-    : "Starter Care Tier (3 Sessions)";
+    : `Starter Care Tier (${3 - Math.min(3, sessionCount)} Sessions left)`;
 
   useEffect(() => {
     scrollToBottom();
@@ -150,19 +154,19 @@ I can also guide you through specialized exercises. Try a quick-preset below!`,
               <div className="text-xs text-gray-600 space-y-1.5 font-mono">
                 <div className="p-2 bg-gray-50 rounded">Focus: <span className="text-slate-900 font-bold">{profile.addictionFocus}</span></div>
                 <div className="p-2 bg-gray-50 rounded">Sustained Streak: <span className="text-emerald-700 font-bold">{profile.streakDays} days</span></div>
-                <div className="p-2 bg-gray-50 rounded">Active Stakes: <span className="text-blue-700 font-bold">{currentStakes} / 300sh</span></div>
+                <div className="p-2 bg-gray-50 rounded">Active Stakes: <span className="text-blue-700 font-bold">{currentStakes} / {targetValue}sh</span></div>
               </div>
             </div>
           </div>
         </div>
 
         <div className="pt-4 border-t border-gray-100 space-y-2">
-          {currentStakes < 300 ? (
+          {currentStakes < targetValue ? (
             <div className="p-3 bg-amber-50 rounded-xl border border-amber-100 text-[11px] text-amber-800 leading-relaxed">
               <span className="font-bold flex items-center gap-1 mb-1 text-amber-900">
                 <BadgeAlert className="w-3.5 h-3.5" /> Close to Premium Therapy!
               </span>
-              You have staked {currentStakes}sh. Unlocking the 300sh target clears infinite counselor conversations and CBT drills.
+              You have staked {currentStakes}sh. Unlocking the {targetValue}sh target clears infinite counselor conversations and CBT drills.
             </div>
           ) : (
             <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-100 text-[11px] text-emerald-800 leading-relaxed font-bold flex items-center gap-1">

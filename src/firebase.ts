@@ -1,5 +1,5 @@
 import { initializeApp } from '@firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from '@firebase/auth';
+import { getAuth, signOut } from '@firebase/auth';
 import { getFirestore } from '@firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
@@ -8,7 +8,6 @@ const app = initializeApp(firebaseConfig);
 // CRITICAL: Must use the specific firestoreDatabaseId from the configuration
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
-export const googleProvider = new GoogleAuthProvider();
 
 // Error definition & formatting required by the Firebase Integration specs
 export enum OperationType {
@@ -67,17 +66,6 @@ export async function testConnection() {
     if (error instanceof Error && error.message.includes('the client is offline')) {
       console.error("Please check your Firebase configuration. Client is offline.");
     }
-  }
-}
-
-// Authenticate helper with popup
-export async function signInWithGoogle() {
-  try {
-    const result = await signInWithPopup(auth, googleProvider);
-    return result.user;
-  } catch (err) {
-    console.error("Authentication popup failed:", err);
-    throw err;
   }
 }
 
