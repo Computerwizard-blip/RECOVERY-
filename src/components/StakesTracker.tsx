@@ -385,7 +385,7 @@ export default function StakesTracker({ profile, onPaymentSuccess, onPlanUpdate 
                 <div className="text-center py-2">
                   <p className="text-xs text-amber-300 mb-2 font-bold animate-pulse">🔒 SECURE DEPOSIT</p>
                   <p className="text-[11px] text-slate-300">
-                    Pay <strong>{customAmount ? customAmount : stakeAmount} KES/sh</strong> to Sovereign Path wallet.
+                    Pay <strong>{customAmount ? customAmount : stakeAmount} KES/sh</strong> to Solmontec Recovery life wallet.
                   </p>
                 </div>
                 

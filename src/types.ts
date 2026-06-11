@@ -1,7 +1,10 @@
 export enum AddictionCategory {
   DRUGS = "Drugs",
-  SEX = "Sex",
   ALCOHOL = "Alcohol",
+  GAMBLING = "Gambling",
+  NICOTINE = "Nicotine",
+  SEX = "Sex",
+  TECH = "Tech",
   GENERAL = "General"
 }
 

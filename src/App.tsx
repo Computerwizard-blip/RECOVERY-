@@ -28,6 +28,8 @@ import CommunitySupport from "./components/CommunitySupport";
 import EducationalLibrary from "./components/EducationalLibrary";
 import DailyQuote from "./components/DailyQuote";
 import AddictionImpactGuide from "./components/AddictionImpactGuide";
+import Homepage from "./components/Homepage";
+import DailyStories from "./components/DailyStories";
 
 import { 
   Activity, 
@@ -43,14 +45,15 @@ import {
   User as UserIcon,
   BookOpen,
   MessageSquare,
-  Coins
+  Coins,
+  Home
 } from "lucide-react";
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"dashboard" | "stakes" | "forum" | "therapist" | "resources">("dashboard");
+  const [activeTab, setActiveTab] = useState<"home" | "dashboard" | "stakes" | "forum" | "therapist" | "resources">("home");
   
   // Local profile customization state
   const [aliasInput, setAliasInput] = useState("");
@@ -293,7 +296,7 @@ export default function App() {
         setProfile(newProfile);
         setAliasInput(signUpUsername);
         setSelectedFocus(signUpFocus);
-        setCredentialsSuccess("Profile created! Welcome to Sovereign Path.");
+        setCredentialsSuccess("Profile created! Welcome to Solmontec Recovery life.");
       } else {
         // Log-in process:
         const localRegistryStr = localStorage.getItem("sovereign_local_registry") || "{}";
@@ -380,7 +383,7 @@ export default function App() {
             </span>
             <div>
               <h1 className="font-extrabold text-blue-950 text-base md:text-lg tracking-tight leading-none">
-                Sovereign path
+                Solmontec Recovery life
               </h1>
               <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mt-0.5">
                 Addiction Recovery Alliance
@@ -423,21 +426,31 @@ export default function App() {
             {/* navigation tabs row */}
             <nav className="flex items-center gap-1 overflow-x-auto pb-1 bg-white border border-gray-100 p-1.5 rounded-2xl shadow-xs select-none no-scrollbar">
               <button
+                onClick={() => setActiveTab("home")}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
+                  activeTab === "home"
+                    ? "bg-rose-500 text-white shadow-xs"
+                    : "text-gray-500 hover:text-gray-900 hover:bg-slate-50"
+                }`}
+              >
+                <Home className="w-4 h-4 text-amber-500" /> Live Home Hub
+              </button>
+              <button
                 onClick={() => setActiveTab("dashboard")}
                 className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
                   activeTab === "dashboard"
                     ? "bg-slate-900 text-white shadow-xs"
-                    : "text-gray-500 hover:text-gray-900"
+                    : "text-gray-500 hover:text-gray-900 hover:bg-slate-50"
                 }`}
               >
-                <Activity className="w-4 h-4" /> Dashboard
+                <Activity className="w-4 h-4" /> Personal Ledger
               </button>
               <button
                 onClick={() => setActiveTab("stakes")}
                 className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 ${
                   activeTab === "stakes"
                     ? "bg-slate-900 text-white shadow-xs"
-                    : "text-gray-500 hover:text-gray-900"
+                    : "text-gray-500 hover:text-gray-900 hover:bg-slate-50"
                 }`}
               >
                 <Coins className="w-4 h-4" /> Small Stakes
@@ -477,6 +490,10 @@ export default function App() {
             {/* active tab view rendering */}
             <div id="active-panel" className="transition-all duration-300">
               
+              {activeTab === "home" && (
+                <Homepage profile={profile} onNavigateToTab={setActiveTab} />
+              )}
+              
               {activeTab === "dashboard" && profile && (
                 <div className="space-y-6 font-sans">
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -513,6 +530,9 @@ export default function App() {
 
                     {/* Daily Inspirational Quote Section */}
                     <DailyQuote />
+
+                    {/* Daily Real-Life Situation Recovery Stories */}
+                    <DailyStories initialCategory={profile.focusCategory || AddictionCategory.GENERAL} />
 
                     {/* Optional Registration Card to persist account */}
                     {!profile.username && (
@@ -780,7 +800,7 @@ export default function App() {
       <footer className="bg-white border-t border-gray-100 py-6 mt-12 select-none">
         <div className="max-w-7xl mx-auto px-4 md:px-6 flex flex-col md:flex-row items-center justify-between gap-4">
           <p className="text-[11px] text-gray-400 leading-normal font-medium">
-            © 2026 Sovereign Path, Inc. All therapy guides and mental checks are grounded in standard Cognitive Behavioral Therapy frameworks. This tool is educational and supportive, not a replacement for direct emergency response services.
+            © 2026 Solmontec Recovery life, Inc. All therapy guides and mental checks are grounded in standard Cognitive Behavioral Therapy frameworks. This tool is educational and supportive, not a replacement for direct emergency response services.
           </p>
           <div className="flex items-center gap-3 text-[10px] text-gray-500 font-mono">
             <span>Sovereign Security Sandbox Checked</span>

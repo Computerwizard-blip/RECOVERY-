@@ -1,5 +1,5 @@
 {
-  "name": "Addiction Recovery Companion",
+  "name": "Solmontec Recovery Life",
   "description": "A compassionate educational platform with resources, recovery forum support, CBT therapy chat, and small stakes subscription tracker to overcome drug, alcohol, and sex addiction.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
