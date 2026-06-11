@@ -1,0 +1,110 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ID validation constraint
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Simple authentication check
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // User Profile Schema Validator
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['userId', 'alias', 'addictionFocus', 'streakDays', 'subscriptionBalance'])
+        && data.keys().size() <= 8
+        && data.userId == request.auth.uid
+        && data.alias is string && data.alias.size() >= 2 && data.alias.size() <= 50
+        && data.addictionFocus is string && data.addictionFocus.size() <= 50
+        && data.streakDays is int && data.streakDays >= 0
+        && data.subscriptionBalance is number && data.subscriptionBalance >= 0;
+    }
+
+    // Stakes Payment Schema Validator
+    function isValidStakesPayment(data) {
+      return data.keys().hasAll(['paymentId', 'userId', 'amount', 'createdAt', 'method'])
+        && data.keys().size() <= 6
+        && data.userId == request.auth.uid
+        && data.paymentId is string && data.paymentId.size() <= 128
+        && data.amount is number && data.amount > 0 && data.amount <= 10000
+        && data.method is string && data.method.size() <= 50;
+    }
+
+    // Community Post Schema Validator
+    function isValidCommunityPost(data) {
+      return data.keys().hasAll(['postId', 'userId', 'userAlias', 'content', 'category', 'createdAt'])
+        && data.keys().size() <= 8
+        && data.userId == request.auth.uid
+        && data.userAlias is string && data.userAlias.size() >= 2 && data.userAlias.size() <= 50
+        && data.content is string && data.content.size() >= 1 && data.content.size() <= 5000
+        && data.category is string && (data.category == 'Drugs' || data.category == 'Sex' || data.category == 'Alcohol' || data.category == 'General');
+    }
+
+    // Journal Entry Schema Validator
+    function isValidJournalEntry(data) {
+      return data.keys().hasAll(['entryId', 'userId', 'mood', 'note', 'createdAt'])
+        && data.keys().size() <= 6
+        && data.userId == request.auth.uid
+        && data.entryId is string && data.entryId.size() <= 128
+        && data.mood is string && data.mood.size() <= 50
+        && data.note is string && data.note.size() <= 10000;
+    }
+
+    // User Profiles
+    match /user_profiles/{userId} {
+      allow get: if isSignedIn() && request.auth.uid == userId;
+      allow create: if isSignedIn() && request.auth.uid == userId && isValidUserProfile(incoming());
+      allow update: if isSignedIn() && request.auth.uid == userId && isValidUserProfile(incoming()) 
+        && incoming().userId == existing().userId;
+      allow delete: if false;
+    }
+
+    // Stakes Payments (Ledgers of Small Stakes contributions)
+    match /stakes_payments/{paymentId} {
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(paymentId) && isValidStakesPayment(incoming());
+      allow update, delete: if false;
+    }
+
+    // Community Support Posts
+    match /community_posts/{postId} {
+      allow list: if isSignedIn();
+      allow get: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(postId) && isValidCommunityPost(incoming());
+      allow update: if isSignedIn() && (
+        // Action: Edit own post
+        (resource.data.userId == request.auth.uid && isValidCommunityPost(incoming()) && incoming().userId == existing().userId) ||
+        // Action: Like/Unlike post (Anyone logged in can increment/decrement likesCount)
+        (incoming().diff(existing()).affectedKeys().hasOnly(['likesCount']) && incoming().likesCount is int)
+      );
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    // Journal/Check-in Private Therapy Records
+    match /journal_entries/{entryId} {
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow get: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(entryId) && isValidJournalEntry(incoming());
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid && isValidJournalEntry(incoming()) && incoming().userId == existing().userId;
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+  }
+}

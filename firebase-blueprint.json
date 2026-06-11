@@ -1,0 +1,78 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User recovery profile and subscription tracking info",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "alias": { "type": "string" },
+        "addictionFocus": { "type": "string" },
+        "streakDays": { "type": "integer" },
+        "lastCheckIn": { "type": "string", "format": "date-time" },
+        "subscriptionBalance": { "type": "number" },
+        "joinedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "alias", "addictionFocus", "streakDays", "subscriptionBalance"]
+    },
+    "StakesPayment": {
+      "title": "StakesPayment",
+      "description": "A payment of small stakes towards the monthly 300sh goal",
+      "type": "object",
+      "properties": {
+        "paymentId": { "type": "string" },
+        "userId": { "type": "string" },
+        "amount": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "method": { "type": "string" }
+      },
+      "required": ["paymentId", "userId", "amount", "createdAt", "method"]
+    },
+    "CommunityPost": {
+      "title": "CommunityPost",
+      "description": "Community support forum posts",
+      "type": "object",
+      "properties": {
+        "postId": { "type": "string" },
+        "userId": { "type": "string" },
+        "userAlias": { "type": "string" },
+        "content": { "type": "string" },
+        "category": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "likesCount": { "type": "integer" }
+      },
+      "required": ["postId", "userId", "userAlias", "content", "category", "createdAt"]
+    },
+    "JournalEntry": {
+      "title": "JournalEntry",
+      "description": "Personal journal entries for therapy tracking",
+      "type": "object",
+      "properties": {
+        "entryId": { "type": "string" },
+        "userId": { "type": "string" },
+        "mood": { "type": "string" },
+        "note": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["entryId", "userId", "mood", "note", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/user_profiles/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile document keyed by authenticated userId"
+    },
+    "/stakes_payments/{paymentId}": {
+      "schema": "StakesPayment",
+      "description": "Micro-payment transactions of small stakes"
+    },
+    "/community_posts/{postId}": {
+      "schema": "CommunityPost",
+      "description": "Public anonymous support forum posts"
+    },
+    "/journal_entries/{entryId}": {
+      "schema": "JournalEntry",
+      "description": "Private therapist journal entries"
+    }
+  }
+}
